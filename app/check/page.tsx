@@ -20,12 +20,19 @@ type Summary = {
   error: number;
 };
 
+const BATCH_SIZE = 5;
+
 export default function CheckPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<ResultItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState({
+    done: 0,
+    total: 0,
+    batch: 0,
+    totalBatches: 0,
+  });
   const [errorMsg, setErrorMsg] = useState("");
 
   const handleCheck = async () => {
@@ -40,47 +47,76 @@ export default function CheckPage() {
     }
 
     if (urls.length > 50) {
-      setErrorMsg("Tối đa 50 link 1 lần. Bạn đã dán " + urls.length + " link.");
-      return;
-    }
+  setErrorMsg("Tối đa 50 link 1 lần. Bạn đã dán " + urls.length + " link.");
+  return;
+}
 
     setErrorMsg("");
     setLoading(true);
     setResults([]);
     setSummary(null);
-    setProgress({ done: 0, total: urls.length });
+    setProgress({
+      done: 0,
+      total: urls.length,
+      batch: 0,
+      totalBatches: Math.ceil(urls.length / BATCH_SIZE),
+    });
 
-    try {
-      const res = await fetch("/api/check-review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls }),
+    const allResults: ResultItem[] = [];
+    const totalBatches = Math.ceil(urls.length / BATCH_SIZE);
+
+    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+      const batch = urls.slice(i, i + BATCH_SIZE);
+      const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+
+      setProgress({
+        done: allResults.length,
+        total: urls.length,
+        batch: batchIndex,
+        totalBatches,
       });
 
-      const data = await res.json();
+      try {
+        const res = await fetch("/api/check-review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls: batch }),
+        });
 
-      if (!res.ok) {
-        setErrorMsg(data.error || "Có lỗi xảy ra");
-        setLoading(false);
-        return;
+        const data = await res.json();
+
+        if (res.ok && data.results) {
+          allResults.push(...data.results);
+        } else {
+          batch.forEach((u) =>
+            allResults.push({
+              url: u,
+              status: "ERROR",
+              error: data.error || `Lỗi batch ${batchIndex}`,
+            })
+          );
+        }
+      } catch {
+        batch.forEach((u) =>
+          allResults.push({
+            url: u,
+            status: "ERROR",
+            error: "Lỗi kết nối tới server",
+          })
+        );
       }
 
-      const items: ResultItem[] = data.results || [];
-      setResults(items);
-
-      const s: Summary = {
-        total: items.length,
-        live: items.filter((r) => r.status === "LIVE").length,
-        die: items.filter((r) => r.status === "DIE").length,
-        unknown: items.filter((r) => r.status === "UNKNOWN").length,
-        error: items.filter((r) => r.status === "ERROR").length,
-      };
-      setSummary(s);
-      setProgress({ done: items.length, total: items.length });
-    } catch {
-      setErrorMsg("Lỗi kết nối tới server. Vui lòng thử lại.");
+      setResults([...allResults]);
     }
 
+    const s: Summary = {
+      total: allResults.length,
+      live: allResults.filter((r) => r.status === "LIVE").length,
+      die: allResults.filter((r) => r.status === "DIE").length,
+      unknown: allResults.filter((r) => r.status === "UNKNOWN").length,
+      error: allResults.filter((r) => r.status === "ERROR").length,
+    };
+    setSummary(s);
     setLoading(false);
   };
 
@@ -89,7 +125,7 @@ export default function CheckPage() {
     setResults([]);
     setSummary(null);
     setErrorMsg("");
-    setProgress({ done: 0, total: 0 });
+    setProgress({ done: 0, total: 0, batch: 0, totalBatches: 0 });
   };
 
   const statusBadge = (status: Status) => {
@@ -115,6 +151,16 @@ export default function CheckPage() {
     return url.slice(0, max) + "...";
   };
 
+  const urlCount = input
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+
+  const progressPercent =
+    progress.total > 0
+      ? Math.round((progress.done / progress.total) * 100)
+      : 0;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-red-50 via-white to-white py-12 md:py-20">
       <div className="container-x max-w-5xl">
@@ -125,7 +171,6 @@ export default function CheckPage() {
           ← Về trang chủ
         </Link>
 
-        {/* Header */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-1.5 text-sm font-semibold text-red-700 mb-4">
             🔍 Công cụ kiểm tra miễn phí
@@ -138,11 +183,11 @@ export default function CheckPage() {
           </h1>
           <p className="mt-4 text-slate-600 max-w-2xl mx-auto">
             Dán <strong>nhiều link</strong> review Google Maps (mỗi link 1 dòng) → check
-            cùng lúc, tối đa <strong>50 link/lần</strong>.
+cùng lúc, tối đa <strong>50 link/lần</strong>.
+
           </p>
         </div>
 
-        {/* Form */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 shadow-lg">
           <label className="block font-semibold text-slate-800 mb-2">
             Dán danh sách link review (mỗi link 1 dòng):
@@ -151,7 +196,7 @@ export default function CheckPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={`https://maps.app.goo.gl/5Ec9anRG9JDtT5kg6\nhttps://maps.app.goo.gl/vJ68dRKYXQyRVobr8\nhttps://maps.app.goo.gl/...`}
-            rows={8}
+            rows={10}
             className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 outline-none focus:border-red-600 focus:ring-2 focus:ring-red-100 text-slate-800 font-mono text-sm"
             disabled={loading}
           />
@@ -181,34 +226,39 @@ export default function CheckPage() {
             )}
 
             <span className="text-sm text-slate-500 ml-auto">
-              {input
-                .split(/\r?\n/)
-                .map((s) => s.trim())
-                .filter(Boolean).length}{" "}
-              link
+              {urlCount} link
             </span>
           </div>
 
           <p className="mt-3 text-xs text-slate-500">
             💡 Mẹo: Trong Google Maps → mở review → Share → Copy link. Dán mỗi
-            link 1 dòng.
+link 1 dòng. Tối đa 50 link/lần.
           </p>
         </div>
 
-        {/* Loading */}
         {loading && (
-          <div className="mt-8 text-center">
-            <div className="inline-block w-12 h-12 border-4 border-red-200 border-t-red-600 rounded-full animate-spin" />
-            <p className="mt-4 text-slate-600">
-              Đang kiểm tra {progress.total} link...
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              Vui lòng đợi, có thể mất 10-30 giây cho nhiều link.
-            </p>
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+            <div className="flex items-center gap-4">
+              <div className="inline-block w-10 h-10 border-4 border-red-200 border-t-red-600 rounded-full animate-spin shrink-0" />
+              <div className="flex-1">
+                <div className="font-semibold text-slate-800">
+                  Đang kiểm tra {progress.done}/{progress.total} link...
+                </div>
+                <div className="text-sm text-slate-500 mt-1">
+                  Batch {progress.batch}/{progress.totalBatches} · Mỗi batch 5
+                  link · Vui lòng đợi
+                </div>
+                <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-red-500 to-red-600 transition-all duration-300"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Summary */}
         {summary && !loading && (
           <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="rounded-2xl border-2 border-slate-200 bg-white p-4 text-center">
@@ -246,12 +296,12 @@ export default function CheckPage() {
           </div>
         )}
 
-        {/* Results table */}
-        {results.length > 0 && !loading && (
+        {results.length > 0 && (
           <div className="mt-8 bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
               <h3 className="font-bold text-slate-800">
-                📋 Kết quả chi tiết ({results.length} link)
+                📋 Kết quả chi tiết ({results.length}
+                {loading ? ` / ${progress.total}` : ""} link)
               </h3>
             </div>
 
@@ -284,7 +334,6 @@ export default function CheckPage() {
           </div>
         )}
 
-        {/* CTA if has DIE */}
         {summary && summary.die > 0 && !loading && (
           <div className="mt-8 rounded-2xl border-2 border-red-500 bg-red-50 p-6 md:p-8">
             <h3 className="text-xl font-extrabold text-red-700 mb-2">
@@ -309,7 +358,6 @@ export default function CheckPage() {
           </div>
         )}
 
-        {/* Info */}
         <div className="mt-12 p-6 bg-slate-50 rounded-2xl border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-3">
             📖 Công cụ này dùng để làm gì?

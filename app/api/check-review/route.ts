@@ -119,15 +119,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cần gửi mảng urls" }, { status: 400 });
     }
 
-    if (urls.length > 50) {
-      return NextResponse.json(
-        { error: "Tối đa 50 link 1 lần check" },
-        { status: 400 }
-      );
-    }
+    if (urls.length > 5) {
+  return NextResponse.json(
+    { error: "Tối đa 5 link mỗi batch" },
+    { status: 400 }
+  );
+}
+
 
     const results = [];
-    const concurrency = 2;
+    const concurrency = 3;
 
     for (let i = 0; i < urls.length; i += concurrency) {
       const batch = urls.slice(i, i + concurrency);
