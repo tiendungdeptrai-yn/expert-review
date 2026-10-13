@@ -42,7 +42,31 @@ async function fetchOnce(url: string, fastMode: boolean) {
   }
 }
 
-function analyze(html: string): "LIVE" | "DIE" | "UNKNOWN" {
+function extractName(html: string): string | null {
+  // Pattern 1: JSON "author_name" (chính xác nhất)
+  const p1 = html.match(/"author_name"\s*:\s*"([^"\\]{2,60})"/);
+  if (p1) return p1[1].trim();
+
+  // Pattern 2: Google Maps class d4r55 (tên người review)
+  const p2 = html.match(/<div[^>]*class="[^"]*\bd4r55\b[^"]*"[^>]*>([^<]{2,60})<\/div>/);
+  if (p2) return p2[1].trim();
+
+  // Pattern 3: aria-label "Photo of NAME"
+  const p3 = html.match(/aria-label="(?:Photo|Ảnh) (?:of| của) ([^"]{2,60})"/);
+  if (p3) return p3[1].trim();
+
+  // Pattern 4: link tới profile contributor
+  const p4 = html.match(/\/maps\/contrib\/\d+\/reviews[^"]*"[^>]*>([^<]{2,60})</);
+  if (p4) return p4[1].trim();
+
+  // Pattern 5: class "WNxzHc" (tên author trong layout mới)
+  const p5 = html.match(/<div[^>]*class="[^"]*\bWNxzHc\b[^"]*"[^>]*>([^<]{2,60})<\/div>/);
+  if (p5) return p5[1].trim();
+
+  return null;
+}
+
+function analyze(html: string): { status: "LIVE" | "DIE" | "UNKNOWN"; name: string | null } {
   const diePatterns = [
     /không còn khả dụng/i,
     /không còn tồn tại/i,
@@ -62,7 +86,7 @@ function analyze(html: string): "LIVE" | "DIE" | "UNKNOWN" {
   ];
 
   for (const p of diePatterns) {
-    if (p.test(html)) return "DIE";
+    if (p.test(html)) return { status: "DIE", name: null };
   }
 
   const livePatterns = [
@@ -74,10 +98,10 @@ function analyze(html: string): "LIVE" | "DIE" | "UNKNOWN" {
   ];
 
   if (livePatterns.filter((p) => p.test(html)).length >= 1) {
-    return "LIVE";
+    return { status: "LIVE", name: extractName(html) };
   }
 
-  return "UNKNOWN";
+  return { status: "UNKNOWN", name: null };
 }
 
 async function checkOne(url: string) {
@@ -107,23 +131,24 @@ async function checkOne(url: string) {
       return { url, status: "ERROR", error: result.error || "Không lấy được dữ liệu" };
     }
 
-    const status = analyze(result.html);
+        const analysis = analyze(result.html);
 
     // Nếu UNKNOWN, thử lại 1 lần với chế độ chậm
-    if (status === "UNKNOWN") {
+    if (analysis.status === "UNKNOWN") {
       const retry = await fetchOnce(trimmed, false);
       if (retry.ok && retry.html) {
-        const status2 = analyze(retry.html);
-        if (status2 !== "UNKNOWN") {
-          return { url, status: status2 };
+        const analysis2 = analyze(retry.html);
+        if (analysis2.status !== "UNKNOWN") {
+          return { url, status: analysis2.status, name: analysis2.name };
         }
       }
     }
 
     return {
       url,
-      status,
-      error: status === "UNKNOWN" ? `Không nhận diện được` : undefined,
+      status: analysis.status,
+      name: analysis.name,
+      error: analysis.status === "UNKNOWN" ? `Không nhận diện được` : undefined,
     };
   } catch (e: any) {
     return { url, status: "ERROR", error: e.message };

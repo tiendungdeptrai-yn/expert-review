@@ -8,8 +8,10 @@ type Status = "LIVE" | "DIE" | "UNKNOWN" | "ERROR";
 type ResultItem = {
   url: string;
   status: Status;
+  name?: string | null;
   error?: string;
 };
+
 
 type Summary = {
   total: number;
@@ -317,18 +319,22 @@ export default function CheckPage() {
                   <div className="text-sm text-slate-400 w-8 text-right shrink-0">
                     {i + 1}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className="text-sm text-slate-700 truncate font-mono"
-                      title={r.url}
-                    >
-                      {shortUrl(r.url)}
-                    </div>
-                    {r.error && (
-                      <div className="text-xs text-red-500 mt-0.5">
-                        {r.error}
-                      </div>
-                    )}
+                  <<div className="flex-1 min-w-0">
+  <div
+    className="text-sm text-slate-700 truncate font-mono"
+    title={r.url}
+  >
+    {shortUrl(r.url)}
+  </div>
+  {r.status === "LIVE" && r.name && (
+    <div className="text-sm mt-1 font-medium text-slate-800">
+      👤 <span className="text-red-600 font-bold">{r.name}</span>
+    </div>
+  )}
+  {r.error && (
+    <div className="text-xs text-red-500 mt-0.5">{r.error}</div>
+  )}
+</div>
                   </div>
                   <div className="shrink-0">{statusBadge(r.status)}</div>
                 </div>
