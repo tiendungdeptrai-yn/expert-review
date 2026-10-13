@@ -9,9 +9,9 @@ type ResultItem = {
   url: string;
   status: Status;
   name?: string | null;
+  days?: number | null;
   error?: string;
 };
-
 
 type Summary = {
   total: number;
@@ -46,7 +46,6 @@ export default function CheckPage() {
       setErrorMsg("Vui lòng dán ít nhất 1 link review");
       return;
     }
-
     if (urls.length > 50) {
       setErrorMsg("Tối đa 50 link 1 lần. Bạn đã dán " + urls.length + " link.");
       return;
@@ -83,7 +82,6 @@ export default function CheckPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ urls: batch }),
         });
-
         const data = await res.json();
 
         if (res.ok && data.results) {
@@ -106,7 +104,6 @@ export default function CheckPage() {
           })
         );
       }
-
       setResults([...allResults]);
     }
 
@@ -150,16 +147,10 @@ export default function CheckPage() {
   const shortUrl = (url: string, max = 60) =>
     url.length <= max ? url : url.slice(0, max) + "...";
 
-  const urlCount = input
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean).length;
-
+  const urlCount = input.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
   const progressPercent =
     progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-
-  const estTime =
-    urlCount > 0 ? Math.ceil((urlCount / 5) * 8) : 0;
+  const estTime = urlCount > 0 ? Math.ceil((urlCount / 3) * 10) : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-red-50 via-white to-white py-12 md:py-20">
@@ -173,7 +164,7 @@ export default function CheckPage() {
 
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-1.5 text-sm font-semibold text-red-700 mb-4">
-            ⚡ Công cụ kiểm tra siêu nhanh
+            🔍 Công cụ kiểm tra miễn phí
           </div>
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
             Check Review{" "}
@@ -183,7 +174,7 @@ export default function CheckPage() {
           </h1>
           <p className="mt-4 text-slate-600 max-w-2xl mx-auto">
             Dán <strong>nhiều link</strong> review Google Maps (mỗi link 1 dòng) →
-            check song song, tối đa <strong>50 link/lần</strong>.
+            check cùng lúc, tối đa <strong>50 link/lần</strong>.
           </p>
         </div>
 
@@ -227,10 +218,7 @@ export default function CheckPage() {
             <span className="text-sm text-slate-500 ml-auto">
               {urlCount} link
               {urlCount > 0 && (
-                <span className="text-slate-400">
-                  {" "}
-                  · ~{estTime}s
-                </span>
+                <span className="text-slate-400"> · ~{estTime}s</span>
               )}
             </span>
           </div>
@@ -250,8 +238,7 @@ export default function CheckPage() {
                   Đang kiểm tra {progress.done}/{progress.total} link...
                 </div>
                 <div className="text-sm text-slate-500 mt-1">
-                  Batch {progress.batch}/{progress.totalBatches} · Mỗi batch 10
-                  link (chạy song song)
+                  Batch {progress.batch}/{progress.totalBatches} · Mỗi batch 3 link
                 </div>
                 <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
@@ -311,34 +298,36 @@ export default function CheckPage() {
             </div>
 
             <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-{results.map((r, i) => (
-  <div
-    key={i}
-    className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50"
-  >
-    <div className="text-sm text-slate-400 w-8 text-right shrink-0">
-      {i + 1}
-    </div>
-    <div className="flex-1 min-w-0">
-      <div
-        className="text-sm text-slate-700 truncate font-mono"
-        title={r.url}
-      >
-        {shortUrl(r.url)}
-      </div>
-      {r.status === "LIVE" && r.name && (
-        <div className="text-sm mt-1 font-medium text-slate-800">
-          👤 <span className="text-red-600 font-bold">{r.name}</span>
-        </div>
-      )}
-      {r.error && (
-        <div className="text-xs text-red-500 mt-0.5">{r.error}</div>
-      )}
-    </div>
-    <div className="shrink-0">{statusBadge(r.status)}</div>
-  </div>
-))}
-</div>                          
+              {results.map((r, i) => (
+                <div
+                  key={i}
+                  className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50"
+                >
+                  <div className="text-sm text-slate-400 w-8 text-right shrink-0">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-slate-700 truncate font-mono" title={r.url}>
+                      {shortUrl(r.url)}
+                    </div>
+                    {r.status === "LIVE" && r.name && (
+                      <div className="text-sm mt-1 text-slate-800">
+                        👤 <span className="text-red-600 font-bold">{r.name}</span>
+                        {r.days != null && (
+                          <span className="ml-3 text-slate-600">
+                            📅 {r.days} ngày trước
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {r.error && (
+                      <div className="text-xs text-red-500 mt-0.5">{r.error}</div>
+                    )}
+                  </div>
+                  <div className="shrink-0">{statusBadge(r.status)}</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -371,8 +360,8 @@ export default function CheckPage() {
             📖 Công cụ này dùng để làm gì?
           </h3>
           <ul className="space-y-2 text-sm text-slate-600">
-            <li>⚡ Check siêu nhanh nhờ chạy 5 link song song</li>
             <li>✅ Kiểm tra hàng loạt review đã xóa còn "sống" không</li>
+            <li>✅ Hiển thị tên người review + số ngày đã đăng</li>
             <li>✅ Chứng minh dịch vụ xóa review hoạt động hiệu quả</li>
             <li>✅ Miễn phí 100%, tối đa 50 link/lần check</li>
           </ul>

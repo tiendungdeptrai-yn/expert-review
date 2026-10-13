@@ -49,6 +49,38 @@ async function fetchOnce(url: string, fastMode: boolean) {
   }
 }
 
+function extractDays(html: string): number | null {
+  // Pattern tiếng Việt: "10 tháng trước", "5 ngày trước", "2 tuần trước", "3 năm trước"
+  const vnPatterns: Array<{ re: RegExp; multiplier: number }> = [
+    { re: /(\d+)\s*giờ\s*trước/i, multiplier: 1 / 24 },
+    { re: /(\d+)\s*ngày\s*trước/i, multiplier: 1 },
+    { re: /(\d+)\s*tuần\s*trước/i, multiplier: 7 },
+    { re: /(\d+)\s*tháng\s*trước/i, multiplier: 30 },
+    { re: /(\d+)\s*năm\s*trước/i, multiplier: 365 },
+  ];
+
+  // Pattern tiếng Anh
+  const enPatterns: Array<{ re: RegExp; multiplier: number }> = [
+    { re: /(\d+)\s*hours?\s*ago/i, multiplier: 1 / 24 },
+    { re: /(\d+)\s*days?\s*ago/i, multiplier: 1 },
+    { re: /(\d+)\s*weeks?\s*ago/i, multiplier: 7 },
+    { re: /(\d+)\s*months?\s*ago/i, multiplier: 30 },
+    { re: /(\d+)\s*years?\s*ago/i, multiplier: 365 },
+  ];
+
+  const allPatterns = [...vnPatterns, ...enPatterns];
+
+  for (const { re, multiplier } of allPatterns) {
+    const m = html.match(re);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      const days = Math.round(num * multiplier);
+      return days;
+    }
+  }
+
+  return null;
+}
 function extractName(html: string): string | null {
   // Pattern 1 (CHÍNH XÁC - từ debug): tên nằm trong button có attr jactionPane
   const p1 = html.match(
@@ -88,7 +120,11 @@ function extractName(html: string): string | null {
   return null;
 }
 
-function analyze(html: string): { status: "LIVE" | "DIE" | "UNKNOWN"; name: string | null } {
+function analyze(html: string): {
+  status: "LIVE" | "DIE" | "UNKNOWN";
+  name: string | null;
+  days: number | null;
+} {
   const diePatterns = [
     /không còn khả dụng/i,
     /không còn tồn tại/i,
@@ -108,7 +144,7 @@ function analyze(html: string): { status: "LIVE" | "DIE" | "UNKNOWN"; name: stri
   ];
 
   for (const p of diePatterns) {
-    if (p.test(html)) return { status: "DIE", name: null };
+    if (p.test(html)) return { status: "DIE", name: null, days: null };
   }
 
   const livePatterns = [
@@ -120,10 +156,14 @@ function analyze(html: string): { status: "LIVE" | "DIE" | "UNKNOWN"; name: stri
   ];
 
   if (livePatterns.filter((p) => p.test(html)).length >= 1) {
-    return { status: "LIVE", name: extractName(html) };
+    return {
+      status: "LIVE",
+      name: extractName(html),
+      days: extractDays(html),
+    };
   }
 
-  return { status: "UNKNOWN", name: null };
+  return { status: "UNKNOWN", name: null, days: null };
 }
 
 async function checkOne(url: string) {
@@ -153,7 +193,7 @@ async function checkOne(url: string) {
       return { url, status: "ERROR", error: result.error || "Không lấy được dữ liệu" };
     }
 
-        const analysis = analyze(result.html);
+            const analysis = analyze(result.html);
 
     // Nếu UNKNOWN, thử lại 1 lần với chế độ chậm
     if (analysis.status === "UNKNOWN") {
@@ -161,7 +201,12 @@ async function checkOne(url: string) {
       if (retry.ok && retry.html) {
         const analysis2 = analyze(retry.html);
         if (analysis2.status !== "UNKNOWN") {
-          return { url, status: analysis2.status, name: analysis2.name };
+          return {
+            url,
+            status: analysis2.status,
+            name: analysis2.name,
+            days: analysis2.days,
+          };
         }
       }
     }
@@ -170,6 +215,7 @@ async function checkOne(url: string) {
       url,
       status: analysis.status,
       name: analysis.name,
+      days: analysis.days,
       error: analysis.status === "UNKNOWN" ? `Không nhận diện được` : undefined,
     };
   } catch (e: any) {
