@@ -5,40 +5,23 @@ export const dynamic = "force-dynamic";
 
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN || "";
 
-async function checkOne(url: string) {
+async function fetchOnce(url: string, fastMode: boolean) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), fastMode ? 20000 : 40000);
+
   try {
-    const trimmed = url.trim();
-    if (!trimmed) return { url, status: "ERROR", error: "Link trống" };
-
-    const isValidLink =
-      trimmed.includes("google.com/maps") ||
-      trimmed.includes("goo.gl/maps") ||
-      trimmed.includes("maps.app.goo.gl") ||
-      trimmed.includes("google.com/maps/reviews");
-
-    if (!isValidLink) {
-      return { url, status: "ERROR", error: "Link không hợp lệ" };
-    }
-
-    if (!BROWSERLESS_TOKEN) {
-      return { url, status: "ERROR", error: "Chưa cấu hình BROWSERLESS_TOKEN" };
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 55000);
-
     const response = await fetch(
       `https://chrome.browserless.io/content?token=${BROWSERLESS_TOKEN}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: trimmed,
+          url,
           gotoOptions: {
-            waitUntil: "networkidle2",
-            timeout: 40000,
+            waitUntil: fastMode ? "domcontentloaded" : "networkidle2",
+            timeout: fastMode ? 15000 : 30000,
           },
-          waitForTimeout: 2500,
+          waitForTimeout: fastMode ? 1200 : 3000,
         }),
         cache: "no-store",
         signal: controller.signal,
@@ -48,99 +31,129 @@ async function checkOne(url: string) {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      const errText = await response.text();
-      return {
-        url,
-        status: "ERROR",
-        error: `Browserless ${response.status}: ${errText.slice(0, 150)}`,
-      };
+      return { ok: false, error: `HTTP ${response.status}` };
     }
 
     const html = await response.text();
+    return { ok: true, html };
+  } catch (e: any) {
+    clearTimeout(timeout);
+    return { ok: false, error: e.name === "AbortError" ? "Timeout" : e.message };
+  }
+}
 
-    const diePatterns = [
-      /không còn khả dụng/i,
-      /không còn tồn tại/i,
-      /không khả dụng/i,
-      /no longer available/i,
-      /no longer exists/i,
-      /review is no longer/i,
-      /this review is not available/i,
-      /无法查看/,
-      /无法使用/,
-      /已被删除/,
-      /n'est plus disponible/i,
-      /ya no está disponible/i,
-      /nicht mehr verfügbar/i,
-      /não está mais disponível/i,
-      /もはや利用できません/,
-    ];
+function analyze(html: string): "LIVE" | "DIE" | "UNKNOWN" {
+  const diePatterns = [
+    /không còn khả dụng/i,
+    /không còn tồn tại/i,
+    /không khả dụng/i,
+    /no longer available/i,
+    /no longer exists/i,
+    /review is no longer/i,
+    /this review is not available/i,
+    /无法查看/,
+    /无法使用/,
+    /已被删除/,
+    /n'est plus disponible/i,
+    /ya no está disponible/i,
+    /nicht mehr verfügbar/i,
+    /não está mais disponível/i,
+    /もはや利用できません/,
+  ];
 
-    for (const pattern of diePatterns) {
-      if (pattern.test(html)) {
-        return { url, status: "DIE" };
-      }
+  for (const p of diePatterns) {
+    if (p.test(html)) return "DIE";
+  }
+
+  const livePatterns = [
+    /\d+\s*(tháng|tuần|ngày|năm|giờ)\s*trước/i,
+    /\d+\s*(months?|weeks?|days?|years?|hours?)\s*ago/i,
+    /[1-5]\s*sao/i,
+    /[1-5]\s*stars?/i,
+    /aria-label="[^"]*[Ss]ao[^"]*"/,
+  ];
+
+  if (livePatterns.filter((p) => p.test(html)).length >= 1) {
+    return "LIVE";
+  }
+
+  return "UNKNOWN";
+}
+
+async function checkOne(url: string) {
+  try {
+    const trimmed = url.trim();
+    if (!trimmed) return { url, status: "ERROR", error: "Link trống" };
+
+    const valid =
+      trimmed.includes("google.com/maps") ||
+      trimmed.includes("goo.gl/maps") ||
+      trimmed.includes("maps.app.goo.gl") ||
+      trimmed.includes("google.com/maps/reviews");
+
+    if (!valid) return { url, status: "ERROR", error: "Link không hợp lệ" };
+    if (!BROWSERLESS_TOKEN)
+      return { url, status: "ERROR", error: "Chưa cấu hình token" };
+
+    // Lần 1: chạy nhanh
+    let result = await fetchOnce(trimmed, true);
+
+    if (!result.ok) {
+      // Fallback: chạy chậm nếu lần đầu lỗi
+      result = await fetchOnce(trimmed, false);
     }
 
-    const livePatterns = [
-      /\d+\s*(tháng|tuần|ngày|năm|giờ)\s*trước/i,
-      /\d+\s*(months?|weeks?|days?|years?|hours?)\s*ago/i,
-      /[1-5]\s*sao/i,
-      /[1-5]\s*stars?/i,
-      /aria-label="[^"]*[Ss]ao[^"]*"/,
-    ];
+    if (!result.ok || !result.html) {
+      return { url, status: "ERROR", error: result.error || "Không lấy được dữ liệu" };
+    }
 
-    const liveMatches = livePatterns.filter((p) => p.test(html)).length;
+    const status = analyze(result.html);
 
-    if (liveMatches >= 1) {
-      return { url, status: "LIVE" };
+    // Nếu UNKNOWN, thử lại 1 lần với chế độ chậm
+    if (status === "UNKNOWN") {
+      const retry = await fetchOnce(trimmed, false);
+      if (retry.ok && retry.html) {
+        const status2 = analyze(retry.html);
+        if (status2 !== "UNKNOWN") {
+          return { url, status: status2 };
+        }
+      }
     }
 
     return {
       url,
-      status: "UNKNOWN",
-      error: `Không nhận diện được (HTML length: ${html.length})`,
+      status,
+      error: status === "UNKNOWN" ? `Không nhận diện được` : undefined,
     };
-  } catch (error: any) {
-    const msg =
-      error.name === "AbortError"
-        ? "Quá thời gian (timeout)"
-        : error.message || "Không kết nối được";
-    return { url, status: "ERROR", error: msg };
+  } catch (e: any) {
+    return { url, status: "ERROR", error: e.message };
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { urls } = body;
+    const { urls } = await req.json();
 
     if (!Array.isArray(urls) || urls.length === 0) {
-      return NextResponse.json({ error: "Cần gửi mảng urls" }, { status: 400 });
+      return NextResponse.json({ error: "Cần mảng urls" }, { status: 400 });
     }
 
-    if (urls.length > 5) {
-  return NextResponse.json(
-    { error: "Tối đa 5 link mỗi batch" },
-    { status: 400 }
-  );
-}
+    if (urls.length > 10) {
+      return NextResponse.json({ error: "Tối đa 10 link/batch" }, { status: 400 });
+    }
 
-
+    // Chạy SONG SONG 5 link cùng lúc
+    const concurrency = 5;
     const results = [];
-    const concurrency = 3;
 
     for (let i = 0; i < urls.length; i += concurrency) {
       const batch = urls.slice(i, i + concurrency);
-      const batchResults = await Promise.all(
-        batch.map((u: string) => checkOne(u))
-      );
+      const batchResults = await Promise.all(batch.map((u: string) => checkOne(u)));
       results.push(...batchResults);
     }
 
     return NextResponse.json({ results });
-  } catch (error: any) {
-    console.error("Check error:", error);
+  } catch (e: any) {
     return NextResponse.json({ error: "Lỗi server" }, { status: 500 });
   }
 }
