@@ -7,7 +7,7 @@ const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN || "";
 
 async function fetchOnce(url: string, fastMode: boolean) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), fastMode ? 20000 : 40000);
+  const timeout = setTimeout(() => controller.abort(), fastMode ? 25000 : 45000);
 
   try {
     const response = await fetch(
@@ -19,9 +19,16 @@ async function fetchOnce(url: string, fastMode: boolean) {
           url,
           gotoOptions: {
             waitUntil: fastMode ? "domcontentloaded" : "networkidle2",
-            timeout: fastMode ? 15000 : 30000,
+            timeout: fastMode ? 20000 : 35000,
           },
-          waitForTimeout: fastMode ? 1200 : 3000,
+          // ĐỢI selector chứa tên review xuất hiện (tối đa 12s)
+          waitForSelector: {
+            selector:
+              '[class*="fontBodySmall"], [class*="d4r55"], [class*="jactionPane"], [class*="WNxzHc"]',
+            timeout: 12000,
+            visible: false,
+          },
+          waitForTimeout: fastMode ? 800 : 2000,
         }),
         cache: "no-store",
         signal: controller.signal,
@@ -43,24 +50,39 @@ async function fetchOnce(url: string, fastMode: boolean) {
 }
 
 function extractName(html: string): string | null {
-  // Pattern 1: JSON "author_name" (chính xác nhất)
-  const p1 = html.match(/"author_name"\s*:\s*"([^"\\]{2,60})"/);
-  if (p1) return p1[1].trim();
+  // Pattern 1 (CHÍNH XÁC - từ debug): tên nằm trong button có attr jactionPane
+  const p1 = html.match(
+    /<button[^>]*\bjactionPane\b[^>]*>([^<]{2,60})<\/button>/i
+  );
+  if (p1) {
+    const n = p1[1].trim();
+    if (n && !/^\d+$/.test(n) && n.length >= 2) return n;
+  }
 
-  // Pattern 2: Google Maps class d4r55 (tên người review)
-  const p2 = html.match(/<div[^>]*class="[^"]*\bd4r55\b[^"]*"[^>]*>([^<]{2,60})<\/div>/);
-  if (p2) return p2[1].trim();
+  // Pattern 2: fallback - tên trong button có class fontTitleSmall
+  const p2 = html.match(
+    /<button[^>]*class="[^"]*\bfontTitleSmall\b[^"]*"[^>]*>([^<]{2,60})<\/button>/i
+  );
+  if (p2) {
+    const n = p2[1].trim();
+    if (n && !/^\d+$/.test(n)) return n;
+  }
 
-  // Pattern 3: aria-label "Photo of NAME"
-  const p3 = html.match(/aria-label="(?:Photo|Ảnh) (?:of| của) ([^"]{2,60})"/);
-  if (p3) return p3[1].trim();
+  // Pattern 3: fontBodySmall có nội dung (một số layout khác)
+  const p3 = html.match(
+    /<div[^>]*class="[^"]*\bfontBodySmall\b[^"]*"[^>]*>([^<]{2,60})<\/div>/i
+  );
+  if (p3) {
+    const n = p3[1].trim();
+    if (n) return n;
+  }
 
-  // Pattern 4: link tới profile contributor
-  const p4 = html.match(/\/maps\/contrib\/\d+\/reviews[^"]*"[^>]*>([^<]{2,60})</);
+  // Pattern 4: JSON author_name
+  const p4 = html.match(/"author_name"\s*:\s*"([^"\\]{2,60})"/);
   if (p4) return p4[1].trim();
 
-  // Pattern 5: class "WNxzHc" (tên author trong layout mới)
-  const p5 = html.match(/<div[^>]*class="[^"]*\bWNxzHc\b[^"]*"[^>]*>([^<]{2,60})<\/div>/);
+  // Pattern 5: aria-label "Ảnh về NAME" / "Photo of NAME"
+  const p5 = html.match(/aria-label="(?:Ảnh về|Photo of)\s+([^"]{2,60})"/i);
   if (p5) return p5[1].trim();
 
   return null;

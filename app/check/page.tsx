@@ -311,35 +311,34 @@ export default function CheckPage() {
             </div>
 
             <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-              {results.map((r, i) => (
-                <div
-                  key={i}
-                  className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50"
-                >
-                  <div className="text-sm text-slate-400 w-8 text-right shrink-0">
-                    {i + 1}
-                  </div>
-                  <<div className="flex-1 min-w-0">
+{results.map((r, i) => (
   <div
-    className="text-sm text-slate-700 truncate font-mono"
-    title={r.url}
+    key={i}
+    className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50"
   >
-    {shortUrl(r.url)}
-  </div>
-  {r.status === "LIVE" && r.name && (
-    <div className="text-sm mt-1 font-medium text-slate-800">
-      👤 <span className="text-red-600 font-bold">{r.name}</span>
+    <div className="text-sm text-slate-400 w-8 text-right shrink-0">
+      {i + 1}
     </div>
-  )}
-  {r.error && (
-    <div className="text-xs text-red-500 mt-0.5">{r.error}</div>
-  )}
-</div>
-                  </div>
-                  <div className="shrink-0">{statusBadge(r.status)}</div>
-                </div>
-              ))}
-            </div>
+    <div className="flex-1 min-w-0">
+      <div
+        className="text-sm text-slate-700 truncate font-mono"
+        title={r.url}
+      >
+        {shortUrl(r.url)}
+      </div>
+      {r.status === "LIVE" && r.name && (
+        <div className="text-sm mt-1 font-medium text-slate-800">
+          👤 <span className="text-red-600 font-bold">{r.name}</span>
+        </div>
+      )}
+      {r.error && (
+        <div className="text-xs text-red-500 mt-0.5">{r.error}</div>
+      )}
+    </div>
+    <div className="shrink-0">{statusBadge(r.status)}</div>
+  </div>
+))}
+</div>                          
           </div>
         )}
 
