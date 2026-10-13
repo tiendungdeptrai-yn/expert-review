@@ -19,7 +19,7 @@ type Summary = {
   error: number;
 };
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 3;
 
 export default function CheckPage() {
   const [input, setInput] = useState("");

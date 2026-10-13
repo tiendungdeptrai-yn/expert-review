@@ -143,7 +143,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Chạy SONG SONG 5 link cùng lúc
-    const concurrency = 5;
+    const concurrency = 1;
+
     const results = [];
 
     for (let i = 0; i < urls.length; i += concurrency) {
