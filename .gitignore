@@ -24,3 +24,92 @@ npm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+import { NextRequest, NextResponse } from "next/server";
+
+export async function POST(req: NextRequest) {
+  try {
+    const { url } = await req.json();
+
+    if (!url || typeof url !== "string") {
+      return NextResponse.json(
+        { status: "ERROR", error: "Vui lòng dán link review" },
+        { status: 400 }
+      );
+    }
+
+    const trimmed = url.trim();
+
+    // Kiểm tra link có phải Google Maps không
+    const isValidLink =
+      trimmed.includes("google.com/maps") ||
+      trimmed.includes("goo.gl/maps") ||
+      trimmed.includes("maps.app.goo.gl") ||
+      trimmed.includes("google.com/maps/reviews");
+
+    if (!isValidLink) {
+      return NextResponse.json(
+        { status: "ERROR", error: "Link không hợp lệ. Cần dán link review Google Maps." },
+        { status: 400 }
+      );
+    }
+
+    // Fetch link với User-Agent giả Chrome
+    const response = await fetch(trimmed, {
+      method: "GET",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      redirect: "follow",
+      cache: "no-store",
+    });
+
+    const html = await response.text();
+    const htmlLower = html.toLowerCase();
+
+    // Từ khóa báo hiệu review đã DIE
+    const dieKeywords = [
+      "không còn khả dụng",
+      "không khả dụng",
+      "no longer available",
+      "review is no longer",
+      "无法查看",
+      "无法使用",
+      "no longer exists",
+    ];
+
+    const isDie = dieKeywords.some((kw) => htmlLower.includes(kw.toLowerCase()));
+
+    // Check thêm dấu hiệu review còn LIVE
+    const liveKeywords = ["đánh giá", "review", "★★★★★", "star"];
+    const hasLiveSignals = liveKeywords.some((kw) => htmlLower.includes(kw.toLowerCase()));
+
+    let status: "LIVE" | "DIE" | "UNKNOWN";
+
+    if (isDie) {
+      status = "DIE";
+    } else if (hasLiveSignals && !isDie) {
+      status = "LIVE";
+    } else {
+      status = "UNKNOWN";
+    }
+
+    return NextResponse.json({
+      status,
+      checkedUrl: trimmed,
+      finalUrl: response.url,
+      httpStatus: response.status,
+    });
+  } catch (error: any) {
+    console.error("Check review error:", error);
+    return NextResponse.json(
+      {
+        status: "ERROR",
+        error: "Không thể kết nối tới Google. Vui lòng thử lại sau.",
+      },
+      { status: 500 }
+    );
+  }
+}

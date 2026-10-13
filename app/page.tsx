@@ -31,6 +31,7 @@ function Header() {
 
   const nav = [
     { href: "#dich-vu", label: "Dịch vụ" },
+     { href: "/check", label: "🔍 Check Review" },
     { href: "#quy-trinh", label: "Quy trình" },
     { href: "#cam-ket", label: "Cam kết" },
     { href: "#danh-gia", label: "Đánh giá" },
