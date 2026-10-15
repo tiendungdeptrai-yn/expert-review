@@ -3,37 +3,27 @@ import { NextRequest, NextResponse } from "next/server";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN || "";
+// Đã đổi sang ScrapingAnt
+const SCRAPINGANT_API_KEY = process.env.SCRAPINGANT_API_KEY || "3510211a1f424b248b64a4d668f5af81";
 
 async function fetchOnce(url: string, fastMode: boolean) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), fastMode ? 25000 : 45000);
 
   try {
-    const response = await fetch(
-      `https://chrome.browserless.io/content?token=${BROWSERLESS_TOKEN}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          gotoOptions: {
-            waitUntil: fastMode ? "domcontentloaded" : "networkidle2",
-            timeout: fastMode ? 20000 : 35000,
-          },
-          // ĐỢI selector chứa tên review xuất hiện (tối đa 12s)
-          waitForSelector: {
-            selector:
-              '[class*="fontBodySmall"], [class*="d4r55"], [class*="jactionPane"], [class*="WNxzHc"]',
-            timeout: 12000,
-            visible: false,
-          },
-          waitForTimeout: fastMode ? 800 : 2000,
-        }),
-        cache: "no-store",
-        signal: controller.signal,
-      }
-    );
+    // Cấu hình các tham số cho ScrapingAnt
+    const encodedUrl = encodeURIComponent(url);
+    const selector = encodeURIComponent('[class*="fontBodySmall"], [class*="d4r55"], [class*="jactionPane"], [class*="WNxzHc"]');
+    const timeoutSec = fastMode ? 20 : 35;
+
+    // ScrapingAnt sử dụng phương thức GET cho API v2/general
+    const apiUrl = `https://api.scrapingant.com/v2/general?url=${encodedUrl}&x-api-key=${SCRAPINGANT_API_KEY}&browser=true&timeout=${timeoutSec}&wait_for_selector=${selector}`;
+
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
 
     clearTimeout(timeout);
 
@@ -50,7 +40,6 @@ async function fetchOnce(url: string, fastMode: boolean) {
 }
 
 function extractDays(html: string): number | null {
-  // Pattern tiếng Việt: "10 tháng trước", "5 ngày trước", "2 tuần trước", "3 năm trước"
   const vnPatterns: Array<{ re: RegExp; multiplier: number }> = [
     { re: /(\d+)\s*giờ\s*trước/i, multiplier: 1 / 24 },
     { re: /(\d+)\s*ngày\s*trước/i, multiplier: 1 },
@@ -59,7 +48,6 @@ function extractDays(html: string): number | null {
     { re: /(\d+)\s*năm\s*trước/i, multiplier: 365 },
   ];
 
-  // Pattern tiếng Anh
   const enPatterns: Array<{ re: RegExp; multiplier: number }> = [
     { re: /(\d+)\s*hours?\s*ago/i, multiplier: 1 / 24 },
     { re: /(\d+)\s*days?\s*ago/i, multiplier: 1 },
@@ -81,8 +69,8 @@ function extractDays(html: string): number | null {
 
   return null;
 }
+
 function extractName(html: string): string | null {
-  // Pattern 1 (CHÍNH XÁC - từ debug): tên nằm trong button có attr jactionPane
   const p1 = html.match(
     /<button[^>]*\bjactionPane\b[^>]*>([^<]{2,60})<\/button>/i
   );
@@ -91,7 +79,6 @@ function extractName(html: string): string | null {
     if (n && !/^\d+$/.test(n) && n.length >= 2) return n;
   }
 
-  // Pattern 2: fallback - tên trong button có class fontTitleSmall
   const p2 = html.match(
     /<button[^>]*class="[^"]*\bfontTitleSmall\b[^"]*"[^>]*>([^<]{2,60})<\/button>/i
   );
@@ -100,7 +87,6 @@ function extractName(html: string): string | null {
     if (n && !/^\d+$/.test(n)) return n;
   }
 
-  // Pattern 3: fontBodySmall có nội dung (một số layout khác)
   const p3 = html.match(
     /<div[^>]*class="[^"]*\bfontBodySmall\b[^"]*"[^>]*>([^<]{2,60})<\/div>/i
   );
@@ -109,11 +95,9 @@ function extractName(html: string): string | null {
     if (n) return n;
   }
 
-  // Pattern 4: JSON author_name
   const p4 = html.match(/"author_name"\s*:\s*"([^"\\]{2,60})"/);
   if (p4) return p4[1].trim();
 
-  // Pattern 5: aria-label "Ảnh về NAME" / "Photo of NAME"
   const p5 = html.match(/aria-label="(?:Ảnh về|Photo of)\s+([^"]{2,60})"/i);
   if (p5) return p5[1].trim();
 
@@ -178,8 +162,10 @@ async function checkOne(url: string) {
       trimmed.includes("google.com/maps/reviews");
 
     if (!valid) return { url, status: "ERROR", error: "Link không hợp lệ" };
-    if (!BROWSERLESS_TOKEN)
-      return { url, status: "ERROR", error: "Chưa cấu hình token" };
+    
+    // Kiểm tra token ScrapingAnt
+    if (!SCRAPINGANT_API_KEY)
+      return { url, status: "ERROR", error: "Chưa cấu hình token ScrapingAnt" };
 
     // Lần 1: chạy nhanh
     let result = await fetchOnce(trimmed, true);
@@ -193,7 +179,7 @@ async function checkOne(url: string) {
       return { url, status: "ERROR", error: result.error || "Không lấy được dữ liệu" };
     }
 
-            const analysis = analyze(result.html);
+    const analysis = analyze(result.html);
 
     // Nếu UNKNOWN, thử lại 1 lần với chế độ chậm
     if (analysis.status === "UNKNOWN") {
@@ -235,9 +221,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tối đa 10 link/batch" }, { status: 400 });
     }
 
-    // Chạy SONG SONG 5 link cùng lúc
     const concurrency = 1;
-
     const results = [];
 
     for (let i = 0; i < urls.length; i += concurrency) {
