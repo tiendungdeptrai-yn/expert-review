@@ -148,33 +148,31 @@ export default function CheckPage() {
     url.length <= max ? url : url.slice(0, max) + "...";
 
   const urlCount = input.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
-  const progressPercent =
-    progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+      const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
   const estTime = urlCount > 0 ? Math.ceil((urlCount / 3) * 10) : 0;
 
-  return (
+    return (
     <div className="min-h-screen bg-gradient-to-b from-red-50 via-white to-white py-12 md:py-20">
       <div className="container-x max-w-5xl">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-slate-600 hover:text-red-600 mb-8 font-medium"
+          className="inline-flex items-center gap-2 text-slate-600 hover:text-red-600 transition-colors"
         >
           ← Về trang chủ
         </Link>
 
         <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-1.5 text-sm font-semibold text-red-700 mb-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-1.5 text-sm text-red-700 font-medium">
             🔍 Công cụ kiểm tra miễn phí
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
-            Check Review{" "}
+          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mt-6">
+            Check Review{' '}
             <span className="bg-gradient-to-r from-red-600 to-yellow-500 bg-clip-text text-transparent">
               Live / Die
             </span>
           </h1>
           <p className="mt-4 text-slate-600 max-w-2xl mx-auto">
-            Dán <strong>nhiều link</strong> review Google Maps (mỗi link 1 dòng) →
-            check cùng lúc, tối đa <strong>50 link/lần</strong>.
+            Dán <strong>nhiều link</strong> review Google Maps (mỗi link 1 dòng) để kiểm tra cùng lúc, tối đa <strong>50 link/lần</strong>.
           </p>
         </div>
 
@@ -243,7 +241,7 @@ export default function CheckPage() {
                 <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-red-500 to-red-600 transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
+                                   style={{ width: `${percent}%` }}
                   />
                 </div>
               </div>
