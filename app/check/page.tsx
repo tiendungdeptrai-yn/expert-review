@@ -8,8 +8,6 @@ type Status = "LIVE" | "DIE" | "UNKNOWN" | "ERROR";
 type ResultItem = {
   url: string;
   status: Status;
-  name?: string | null;
-  days?: number | null;
   error?: string;
 };
 
@@ -21,7 +19,9 @@ type Summary = {
   error: number;
 };
 
-const BATCH_SIZE = 3;
+const BATCH_SIZE = 2;
+const DELAY_BETWEEN_BATCHES = 2000;
+const MAX_LINKS = 200;
 
 export default function CheckPage() {
   const [input, setInput] = useState("");
@@ -35,19 +35,22 @@ export default function CheckPage() {
     totalBatches: 0,
   });
   const [errorMsg, setErrorMsg] = useState("");
+  
+  // STATE MỚI: Chuyển đổi giữa check url và email
+  const [checkType, setCheckType] = useState<'url' | 'email'>('url');
 
   const handleCheck = async () => {
-    const urls = input
+    const items = input
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (urls.length === 0) {
-      setErrorMsg("Vui lòng dán ít nhất 1 link review");
+    if (items.length === 0) {
+      setErrorMsg(`Vui lòng dán ít nhất 1 ${checkType === 'email' ? 'email' : 'link review'}`);
       return;
     }
-    if (urls.length > 50) {
-      setErrorMsg("Tối đa 50 link 1 lần. Bạn đã dán " + urls.length + " link.");
+    if (items.length > MAX_LINKS) {
+      setErrorMsg(`Tối đa ${MAX_LINKS} dòng 1 lần. Bạn đã dán ${items.length} dòng.`);
       return;
     }
 
@@ -55,32 +58,37 @@ export default function CheckPage() {
     setLoading(true);
     setResults([]);
     setSummary(null);
+
+    const totalBatches = Math.ceil(items.length / BATCH_SIZE);
     setProgress({
       done: 0,
-      total: urls.length,
+      total: items.length,
       batch: 0,
-      totalBatches: Math.ceil(urls.length / BATCH_SIZE),
+      totalBatches,
     });
 
     const allResults: ResultItem[] = [];
-    const totalBatches = Math.ceil(urls.length / BATCH_SIZE);
 
-    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
-      const batch = urls.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
       const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
 
       setProgress({
         done: allResults.length,
-        total: urls.length,
+        total: items.length,
         batch: batchIndex,
         totalBatches,
       });
 
       try {
-        const res = await fetch("/api/check-review", {
+        // TỰ ĐỘNG CHỌN API DỰA VÀO CHẾ ĐỘ
+        const endpoint = checkType === 'email' ? '/api/check-email' : '/api/check-review';
+        const payload = checkType === 'email' ? { emails: batch } : { urls: batch };
+
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ urls: batch }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
 
@@ -104,7 +112,12 @@ export default function CheckPage() {
           })
         );
       }
+
       setResults([...allResults]);
+
+      if (i + BATCH_SIZE < items.length) {
+        await new Promise((r) => setTimeout(r, DELAY_BETWEEN_BATCHES));
+      }
     }
 
     const s: Summary = {
@@ -128,16 +141,14 @@ export default function CheckPage() {
 
   const statusBadge = (status: Status) => {
     const map = {
-      LIVE: { bg: "bg-green-500", text: "LIVE", icon: "✓" },
-      DIE: { bg: "bg-red-500", text: "DIE", icon: "✕" },
+      LIVE: { bg: "bg-green-500", text: checkType === 'email' ? "SỐNG" : "LIVE", icon: "✓" },
+      DIE: { bg: "bg-red-500", text: checkType === 'email' ? "CHẾT" : "DIE", icon: "✕" },
       UNKNOWN: { bg: "bg-yellow-500", text: "?", icon: "?" },
       ERROR: { bg: "bg-slate-400", text: "LỖI", icon: "!" },
     };
     const s = map[status];
     return (
-      <span
-        className={`inline-flex items-center gap-1.5 ${s.bg} text-white text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap`}
-      >
+      <span className={`inline-flex items-center gap-1.5 ${s.bg} text-white text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap`}>
         <span>{s.icon}</span>
         {s.text}
       </span>
@@ -147,17 +158,14 @@ export default function CheckPage() {
   const shortUrl = (url: string, max = 60) =>
     url.length <= max ? url : url.slice(0, max) + "...";
 
-  const urlCount = input.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
-      const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-  const estTime = urlCount > 0 ? Math.ceil((urlCount / 3) * 10) : 0;
+  const itemCount = input.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
+  const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  const estTime = itemCount > 0 ? Math.ceil(itemCount * (checkType === 'email' ? 10 : 15)) : 0;
 
-    return (
+  return (
     <div className="min-h-screen bg-gradient-to-b from-red-50 via-white to-white py-12 md:py-20">
       <div className="container-x max-w-5xl">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-slate-600 hover:text-red-600 transition-colors"
-        >
+        <Link href="/" className="inline-flex items-center gap-2 text-slate-600 hover:text-red-600 transition-colors">
           ← Về trang chủ
         </Link>
 
@@ -166,25 +174,41 @@ export default function CheckPage() {
             🔍 Công cụ kiểm tra miễn phí
           </div>
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mt-6">
-            Check Review{' '}
+            Check {checkType === 'email' ? 'Email' : 'Review'}{' '}
             <span className="bg-gradient-to-r from-red-600 to-yellow-500 bg-clip-text text-transparent">
               Live / Die
             </span>
           </h1>
           <p className="mt-4 text-slate-600 max-w-2xl mx-auto">
-            Dán <strong>nhiều link</strong> review Google Maps (mỗi link 1 dòng) để kiểm tra cùng lúc, tối đa <strong>50 link/lần</strong>.
+            Dán <strong>nhiều {checkType === 'email' ? 'email (Gmail, Yahoo...)' : 'link review Google Maps'}</strong> (mỗi dòng 1 cái) để kiểm tra, tối đa <strong>{MAX_LINKS} dòng/lần</strong>.
           </p>
+        </div>
+
+        {/* NÚT CHUYỂN ĐỔI */}
+        <div className="flex justify-center gap-3 mb-6">
+          <button
+            onClick={() => { setCheckType('url'); clearAll(); }}
+            className={`px-6 py-2.5 rounded-full font-bold transition-all ${checkType === 'url' ? 'bg-red-600 text-white shadow-lg scale-105' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          >
+            🔗 Check Link Review
+          </button>
+          <button
+            onClick={() => { setCheckType('email'); clearAll(); }}
+            className={`px-6 py-2.5 rounded-full font-bold transition-all ${checkType === 'email' ? 'bg-red-600 text-white shadow-lg scale-105' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          >
+            📧 Check Email
+          </button>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 shadow-lg">
           <label className="block font-semibold text-slate-800 mb-2">
-            Dán danh sách link review (mỗi link 1 dòng):
+            Dán danh sách {checkType === 'email' ? 'email' : 'link review'} (mỗi dòng 1 cái):
           </label>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={`https://maps.app.goo.gl/5Ec9anRG9JDtT5kg6\nhttps://maps.app.goo.gl/vJ68dRKYXQyRVobr8\nhttps://maps.app.goo.gl/...`}
-            rows={10}
+            placeholder={checkType === 'email' ? `test1@gmail.com\ntest2@yahoo.com\nhotro@hotmail.com` : `https://maps.app.goo.gl/5Ec9anRG9JDtT5kg6\nhttps://maps.app.goo.gl/vJ68dRKYXQyRVobr8\nhttps://maps.app.goo.gl/...`}
+            rows={12}
             className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 outline-none focus:border-red-600 focus:ring-2 focus:ring-red-100 text-slate-800 font-mono text-sm"
             disabled={loading}
           />
@@ -205,26 +229,20 @@ export default function CheckPage() {
             </button>
 
             {(results.length > 0 || input) && !loading && (
-              <button
-                onClick={clearAll}
-                className="text-slate-600 hover:text-red-600 font-medium underline"
-              >
+              <button onClick={clearAll} className="text-slate-600 hover:text-red-600 font-medium underline">
                 Xóa và check lại
               </button>
             )}
 
             <span className="text-sm text-slate-500 ml-auto">
-              {urlCount} link
-              {urlCount > 0 && (
-                <span className="text-slate-400"> · ~{estTime}s</span>
+              {itemCount} {checkType === 'email' ? 'email' : 'link'}
+              {itemCount > 0 && (
+                <span className="text-slate-400">
+                  {" "}· ~{estTime >= 60 ? Math.round(estTime / 60) + " phút" : estTime + "s"}
+                </span>
               )}
             </span>
           </div>
-
-          <p className="mt-3 text-xs text-slate-500">
-            💡 Mẹo: Trong Google Maps → mở review → Share → Copy link. Dán mỗi
-            link 1 dòng. Tối đa 50 link/lần.
-          </p>
         </div>
 
         {loading && (
@@ -233,15 +251,15 @@ export default function CheckPage() {
               <div className="inline-block w-10 h-10 border-4 border-red-200 border-t-red-600 rounded-full animate-spin shrink-0" />
               <div className="flex-1">
                 <div className="font-semibold text-slate-800">
-                  Đang kiểm tra {progress.done}/{progress.total} link...
+                  Đang kiểm tra {progress.done}/{progress.total} {checkType === 'email' ? 'email' : 'link'}...
                 </div>
                 <div className="text-sm text-slate-500 mt-1">
-                  Batch {progress.batch}/{progress.totalBatches} · Mỗi batch 3 link
+                  Batch {progress.batch}/{progress.totalBatches} · Mỗi batch {BATCH_SIZE} {checkType === 'email' ? 'email' : 'link'}
                 </div>
                 <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-red-500 to-red-600 transition-all duration-300"
-                                   style={{ width: `${percent}%` }}
+                    style={{ width: `${percent}%` }}
                   />
                 </div>
               </div>
@@ -252,36 +270,20 @@ export default function CheckPage() {
         {summary && !loading && (
           <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="rounded-2xl border-2 border-slate-200 bg-white p-4 text-center">
-              <div className="text-3xl font-extrabold text-slate-800">
-                {summary.total}
-              </div>
-              <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">
-                Tổng link
-              </div>
+              <div className="text-3xl font-extrabold text-slate-800">{summary.total}</div>
+              <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">Tổng cộng</div>
             </div>
             <div className="rounded-2xl border-2 border-green-300 bg-green-50 p-4 text-center">
-              <div className="text-3xl font-extrabold text-green-600">
-                {summary.live}
-              </div>
-              <div className="text-xs text-green-700 uppercase tracking-wider mt-1">
-                ✓ Live
-              </div>
+              <div className="text-3xl font-extrabold text-green-600">{summary.live}</div>
+              <div className="text-xs text-green-700 uppercase tracking-wider mt-1">✓ LIVE</div>
             </div>
             <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-center">
-              <div className="text-3xl font-extrabold text-red-600">
-                {summary.die}
-              </div>
-              <div className="text-xs text-red-700 uppercase tracking-wider mt-1">
-                ✕ Die
-              </div>
+              <div className="text-3xl font-extrabold text-red-600">{summary.die}</div>
+              <div className="text-xs text-red-700 uppercase tracking-wider mt-1">✕ DIE</div>
             </div>
             <div className="rounded-2xl border-2 border-yellow-300 bg-yellow-50 p-4 text-center">
-              <div className="text-3xl font-extrabold text-yellow-600">
-                {summary.unknown + summary.error}
-              </div>
-              <div className="text-xs text-yellow-700 uppercase tracking-wider mt-1">
-                ? Khác
-              </div>
+              <div className="text-3xl font-extrabold text-yellow-600">{summary.unknown + summary.error}</div>
+              <div className="text-xs text-yellow-700 uppercase tracking-wider mt-1">? Khác</div>
             </div>
           </div>
         )}
@@ -290,34 +292,18 @@ export default function CheckPage() {
           <div className="mt-8 bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
               <h3 className="font-bold text-slate-800">
-                📋 Kết quả chi tiết ({results.length}
-                {loading ? ` / ${progress.total}` : ""} link)
+                📋 Kết quả chi tiết ({results.length}{loading ? ` / ${progress.total}` : ""} {checkType === 'email' ? 'email' : 'link'})
               </h3>
             </div>
 
             <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
               {results.map((r, i) => (
-                <div
-                  key={i}
-                  className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50"
-                >
-                  <div className="text-sm text-slate-400 w-8 text-right shrink-0">
-                    {i + 1}
-                  </div>
+                <div key={i} className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50">
+                  <div className="text-sm text-slate-400 w-8 text-right shrink-0">{i + 1}</div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-slate-700 truncate font-mono" title={r.url}>
                       {shortUrl(r.url)}
                     </div>
-                    {r.status === "LIVE" && r.name && (
-                      <div className="text-sm mt-1 text-slate-800">
-                        👤 <span className="text-red-600 font-bold">{r.name}</span>
-                        {r.days != null && (
-                          <span className="ml-3 text-slate-600">
-                            📅 {r.days} ngày trước
-                          </span>
-                        )}
-                      </div>
-                    )}
                     {r.error && (
                       <div className="text-xs text-red-500 mt-0.5">{r.error}</div>
                     )}
@@ -332,36 +318,22 @@ export default function CheckPage() {
         {summary && summary.die > 0 && !loading && (
           <div className="mt-8 rounded-2xl border-2 border-red-500 bg-red-50 p-6 md:p-8">
             <h3 className="text-xl font-extrabold text-red-700 mb-2">
-              🎯 Bạn có {summary.die} review cần xóa?
+              🎯 Bạn có {summary.die} {checkType === 'email' ? 'email chết' : 'review cần xóa'}?
             </h3>
-            <p className="text-slate-700 mb-4">
-              Liên hệ ngay để được tư vấn miễn phí và báo giá trong 5 phút.
-            </p>
+            <p className="text-slate-700 mb-4">Liên hệ ngay để được tư vấn miễn phí và báo giá trong 5 phút.</p>
             <div className="flex flex-wrap gap-3">
-              <a href="tel:0564987979" className="btn-primary">
-                📞 Gọi 0564.987.979
-              </a>
-              <a
-                href="https://zalo.me/0564987979"
-                target="_blank"
-                rel="noopener"
-                className="btn-outline"
-              >
-                💬 Chat Zalo
-              </a>
+              <a href="tel:0564987979" className="btn-primary">📞 Gọi 0564.987.979</a>
+              <a href="https://zalo.me/0564987979" target="_blank" rel="noopener" className="btn-outline">💬 Chat Zalo</a>
             </div>
           </div>
         )}
 
         <div className="mt-12 p-6 bg-slate-50 rounded-2xl border border-slate-200">
-          <h3 className="font-bold text-slate-800 mb-3">
-            📖 Công cụ này dùng để làm gì?
-          </h3>
+          <h3 className="font-bold text-slate-800 mb-3">📖 Công cụ này dùng để làm gì?</h3>
           <ul className="space-y-2 text-sm text-slate-600">
-            <li>✅ Kiểm tra hàng loạt review đã xóa còn "sống" không</li>
-            <li>✅ Hiển thị tên người review + số ngày đã đăng</li>
-            <li>✅ Chứng minh dịch vụ xóa review hoạt động hiệu quả</li>
-            <li>✅ Miễn phí 100%, tối đa 50 link/lần check</li>
+            <li>✅ Kiểm tra hàng loạt {checkType === 'email' ? 'email (Gmail, Yahoo...)' : 'review đã xóa còn "sống" không'}</li>
+            <li>✅ {checkType === 'email' ? 'Lọc danh sách email rác, email chết trước khi gửi marketing' : 'Chứng minh dịch vụ xóa review hoạt động hiệu quả'}</li>
+            <li>✅ Miễn phí 100%, tối đa {MAX_LINKS} dòng/lần check</li>
           </ul>
         </div>
       </div>
